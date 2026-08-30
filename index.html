@@ -966,37 +966,9 @@ function importarExcel(file){
       const wb = XLSX.read(evt.target.result, {type:'binary'});
       const novoState = { despesas: [], recorrentes: [] };
 
-      const shDesp = wb.Sheets['Despesas'] || wb.Sheets['Lançamentos'];
-      if(shDesp){
-        const rows = XLSX.utils.sheet_to_json(shDesp, {header:1, raw:true, defval:''});
-        // Detecta se é a planilha antiga (com coluna "Tipo") para não quebrar
-        // ao carregar um arquivo salvo por uma versão anterior desta ferramenta.
-        const header = (rows[0]||[]).map(h => String(h).toLowerCase());
-        const temColunaTipo = header.includes('tipo');
-        for(let i=1; i<rows.length; i++){
-          const row = rows[i];
-          let data, categoria, descricao, valor, fixa, tipo, parcela;
-          if(temColunaTipo){
-            [data, tipo, categoria, descricao, valor, fixa, parcela] = row;
-            if(String(tipo||'').toLowerCase().startsWith('rec')) continue; // pula receitas de arquivos antigos
-          } else {
-            [data, categoria, descricao, valor, fixa, parcela] = row;
-          }
-          if(!data || !categoria) continue;
-          const dataIso = normalizarData(data);
-          if(!dataIso) continue;
-          novoState.despesas.push({
-            id: uid(),
-            data: dataIso,
-            categoria: String(categoria).trim(),
-            descricao: String(descricao||'').trim(),
-            valor: Math.abs(parseValor(valor)),
-            recorrenteId: (String(fixa||'').toLowerCase().startsWith('s')) ? 'importado' : null,
-            parcela: parcela ? String(parcela).trim() : undefined
-          });
-        }
-      }
-
+      // Lê primeiro a aba "Fixas" — precisamos dos IDs das recorrentes antes de
+      // processar as despesas, pra conseguir religar cada lançamento importado
+      // à sua fixa correspondente (em vez de um vínculo genérico "importado").
       if(wb.Sheets['Fixas']){
         const rows = XLSX.utils.sheet_to_json(wb.Sheets['Fixas'], {header:1, raw:true, defval:''});
         const header = (rows[0]||[]).map(h => String(h).toLowerCase());
@@ -1017,6 +989,50 @@ function importarExcel(file){
             categoria: String(categoria).trim(),
             valor: Math.abs(parseValor(valor)),
             ativo: !(String(ativa||'').toLowerCase().startsWith('n'))
+          });
+        }
+      }
+
+      const shDesp = wb.Sheets['Despesas'] || wb.Sheets['Lançamentos'];
+      if(shDesp){
+        const rows = XLSX.utils.sheet_to_json(shDesp, {header:1, raw:true, defval:''});
+        // Detecta se é a planilha antiga (com coluna "Tipo") para não quebrar
+        // ao carregar um arquivo salvo por uma versão anterior desta ferramenta.
+        const header = (rows[0]||[]).map(h => String(h).toLowerCase());
+        const temColunaTipo = header.includes('tipo');
+        for(let i=1; i<rows.length; i++){
+          const row = rows[i];
+          let data, categoria, descricao, valor, fixa, tipo, parcela;
+          if(temColunaTipo){
+            [data, tipo, categoria, descricao, valor, fixa, parcela] = row;
+            if(String(tipo||'').toLowerCase().startsWith('rec')) continue; // pula receitas de arquivos antigos
+          } else {
+            [data, categoria, descricao, valor, fixa, parcela] = row;
+          }
+          if(!data || !categoria) continue;
+          const dataIso = normalizarData(data);
+          if(!dataIso) continue;
+          const categoriaLimpa = String(categoria).trim();
+          const descricaoLimpa = String(descricao||'').trim();
+          let recorrenteId = null;
+          if(String(fixa||'').toLowerCase().startsWith('s')){
+            // religa à fixa correspondente comparando nome (descrição) + categoria;
+            // sem isso, o app nunca reconhece que o mês já foi preenchido e fica
+            // pedindo pra adicionar a fixa de novo mesmo já estando lançada
+            const match = novoState.recorrentes.find(r =>
+              r.nome.toLowerCase() === descricaoLimpa.toLowerCase() &&
+              r.categoria.toLowerCase() === categoriaLimpa.toLowerCase()
+            );
+            recorrenteId = match ? match.id : 'importado';
+          }
+          novoState.despesas.push({
+            id: uid(),
+            data: dataIso,
+            categoria: categoriaLimpa,
+            descricao: descricaoLimpa,
+            valor: Math.abs(parseValor(valor)),
+            recorrenteId: recorrenteId,
+            parcela: parcela ? String(parcela).trim() : undefined
           });
         }
       }
