@@ -101,10 +101,16 @@ body{
 
 /* ---------- form ---------- */
 .tx-form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0;overflow:hidden}
 .field.full{grid-column:1/-1}
 .field label{font-size:11px;font-weight:700;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.4px}
-.field input{width:100%;min-width:0;border:1px solid var(--border);background:var(--bg-alt);border-radius:var(--radius-sm);padding:9px 12px;font-family:'Inter',sans-serif;font-size:13.5px;color:var(--ink);outline:none;transition:border-color .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(31,43,34,.03) inset}
+.field input{width:100%;max-width:100%;min-width:0;border:1px solid var(--border);background:var(--bg-alt);border-radius:var(--radius-sm);padding:9px 12px;font-family:'Inter',sans-serif;font-size:13.5px;color:var(--ink);outline:none;transition:border-color .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(31,43,34,.03) inset}
+/* input[type=date] no iOS usa uma renderização nativa própria (o "wheel" do
+   Safari) cuja largura mínima é baseada no texto por extenso da data e
+   ignora width:100% do CSS — por isso ele vazava do card. Removendo a
+   aparência nativa, o campo passa a obedecer o box model normal, igual
+   qualquer outro input, sem perder a função de abrir o seletor ao tocar. */
+.field input[type=date]{-webkit-appearance:none;appearance:none;-webkit-min-logical-width:0}
 .field input:focus{border-color:var(--sage);box-shadow:0 0 0 3px var(--sage-light);background:#fff}
 .cat-picker{display:contents}
 .cat-dropdown{position:absolute;z-index:50;background:#fff;border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-lift);max-height:220px;overflow-y:auto;display:none;animation:catDropIn .14s var(--ease-snap)}
