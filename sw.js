@@ -2,7 +2,7 @@
 // Estratégia: cache-first pros arquivos do app (funciona offline depois da
 // primeira visita), sempre tentando a rede primeiro só pra pegar atualizações
 // em segundo plano.
-const CACHE_NAME = 'orcamento-domestico-v1';
+const CACHE_NAME = 'orcamento-domestico-v2';
 const ARQUIVOS_CACHE = [
   './',
   './index.html',

@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Orçamento Doméstico</title>
 
 <!-- PWA: instalável na tela inicial do celular, funciona offline -->
@@ -34,7 +34,7 @@
   --ease-snap:cubic-bezier(.4,0,.2,1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
+html,body{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 body{
   min-height:100vh;padding-bottom:3rem;
   background:
@@ -242,6 +242,12 @@ td.num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numer
   .pie-wrap{flex-direction:column;align-items:center;text-align:center}
   .pie-legend{width:100%;max-height:none}
   .pie-legend-item .val{min-width:auto}
+  .edit-grid{grid-template-columns:1fr}
+  .edit-parcela-fields{grid-template-columns:1fr}
+  /* letra >=16px em todo campo evita o zoom automático do Safari no iPhone
+     ao focar um input (abaixo de 16px o iOS aumenta o zoom da página e às
+     vezes não volta ao tamanho normal sozinho) */
+  .field input,.recur-add-row input,#fParcelas,.checkbox-label span{font-size:16px}
 }
 </style>
 </head>
@@ -411,6 +417,17 @@ td.num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numer
   </div>
 </div>
 
+<div class="modal-bg" id="modalRemoverParcelas">
+  <div class="modal">
+    <h3>Remover parcelas seguintes também?</h3>
+    <p id="removerParcelasTexto"></p>
+    <div class="modal-btns">
+      <button class="modal-cancel" id="removerParcelasCancelBtn">Cancelar</button>
+      <button class="modal-confirm" id="removerParcelasConfirmBtn">Remover</button>
+    </div>
+  </div>
+</div>
+
 <div class="cat-dropdown" id="catDropdown"></div>
 
 <div id="toast"></div>
@@ -433,6 +450,14 @@ function carregarLocal(){
       if(parsed && parsed.despesas) state = Object.assign({ pessoas: 2 }, parsed);
     }
   }catch(e){}
+  // limpeza de dados de versões antigas: descrições de parcela que guardavam
+  // o "(x/y)" dentro do próprio texto, duplicando o que a tag já mostra
+  state.despesas.forEach(d => {
+    if(d.parcela && d.descricao){
+      const sufixo = ' (' + d.parcela + ')';
+      if(d.descricao.endsWith(sufixo)) d.descricao = d.descricao.slice(0, -sufixo.length).trim();
+    }
+  });
 }
 function salvarLocal(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
@@ -655,11 +680,53 @@ function addDespesa(d){
   state.despesas.push(Object.assign({id: uid()}, d));
   salvarLocal();
 }
+function numParcela(d){
+  if(!d.parcela) return null;
+  const n = parseInt(String(d.parcela).split('/')[0], 10);
+  return isNaN(n) ? null : n;
+}
+function totalParcela(d){
+  if(!d.parcela) return null;
+  const n = parseInt(String(d.parcela).split('/')[1], 10);
+  return isNaN(n) ? null : n;
+}
+
+let pendingRemoverIds = null;
 function removerDespesa(id){
-  state.despesas = state.despesas.filter(d => d.id !== id);
+  const d = state.despesas.find(x => x.id === id);
+  if(!d) return;
+  if(d.parcelaGrupoId){
+    const num = numParcela(d);
+    const total = totalParcela(d);
+    const grupo = state.despesas.filter(x => x.parcelaGrupoId === d.parcelaGrupoId);
+    const aRemover = grupo.filter(x => (numParcela(x)||0) >= (num||0));
+    if(aRemover.length > 1){
+      pendingRemoverIds = aRemover.map(x => x.id);
+      document.getElementById('removerParcelasTexto').textContent =
+        'Essa despesa faz parte de um parcelamento (' + d.parcela + '). Remover a parcela ' + num + ' também remove as ' + (aRemover.length - 1) + ' parcela(s) seguinte(s) desta mesma compra, até a ' + total + '/' + total + '. As parcelas anteriores (se houver) não são afetadas.';
+      document.getElementById('modalRemoverParcelas').classList.add('show');
+      return;
+    }
+  }
+  state.despesas = state.despesas.filter(x => x.id !== id);
   salvarLocal();
   render();
 }
+document.getElementById('removerParcelasCancelBtn').addEventListener('click', () => {
+  pendingRemoverIds = null;
+  document.getElementById('modalRemoverParcelas').classList.remove('show');
+});
+document.getElementById('removerParcelasConfirmBtn').addEventListener('click', () => {
+  if(pendingRemoverIds){
+    const idsSet = new Set(pendingRemoverIds);
+    state.despesas = state.despesas.filter(x => !idsSet.has(x.id));
+    salvarLocal();
+  }
+  pendingRemoverIds = null;
+  document.getElementById('modalRemoverParcelas').classList.remove('show');
+  showToast('Parcelas removidas.');
+  render();
+});
 
 // ==================== EDIÇÃO DE DESPESA ====================
 const modalEditar = document.getElementById('modalEditar');
@@ -689,10 +756,9 @@ function abrirEdicaoDespesa(id){
   eCategoria.value = d.categoria;
   eDescricao.value = d.descricao || '';
   if(d.parcela){
-    const partes = String(d.parcela).split('/');
     eParcelado.checked = true;
-    eParcelaAtual.value = partes[0] || 1;
-    eParcelaTotal.value = partes[1] || 1;
+    eParcelaAtual.value = numParcela(d) || 1;
+    eParcelaTotal.value = totalParcela(d) || 1;
   } else {
     eParcelado.checked = false;
     eParcelaAtual.value = '';
@@ -707,6 +773,10 @@ function fecharEdicaoDespesa(){
 }
 document.getElementById('editCancelBtn').addEventListener('click', fecharEdicaoDespesa);
 
+function linhaDiff(campo, de, para){
+  return '<div class="modal-diff-item"><b>' + escHtml(campo) + ':</b> ' + escHtml(de) + '<span class="seta">→</span><span class="novo">' + escHtml(para) + '</span></div>';
+}
+
 document.getElementById('editForm').addEventListener('submit', function(e){
   e.preventDefault();
   const d = state.despesas.find(x => x.id === editandoId);
@@ -718,32 +788,58 @@ document.getElementById('editForm').addEventListener('submit', function(e){
   const novaDescricao = eDescricao.value.trim();
   if(!novaData || !novaCategoria || !novoValor){ showToast('Preencha data, categoria e valor.'); return; }
 
-  let novaParcela;
+  let parcelaAtual = null, parcelaTotal = null;
   if(eParcelado.checked){
-    const atual = parseInt(eParcelaAtual.value, 10) || 1;
-    const total = parseInt(eParcelaTotal.value, 10) || atual;
-    novaParcela = atual + '/' + total;
+    parcelaAtual = parseInt(eParcelaAtual.value, 10) || 1;
+    parcelaTotal = parseInt(eParcelaTotal.value, 10) || parcelaAtual;
+    if(parcelaTotal < parcelaAtual){ showToast('O total de parcelas não pode ser menor que a parcela atual.'); return; }
+  }
+
+  pendingEdit = { id: editandoId, data: novaData, categoria: novaCategoria, descricao: novaDescricao, valor: novoValor, parcelado: eParcelado.checked, parcelaAtual, parcelaTotal };
+
+  const diffLista = document.getElementById('editDiffList');
+  const fazParteDeGrupo = !!d.parcelaGrupoId;
+
+  if(fazParteDeGrupo && eParcelado.checked){
+    // edição em cascata: esta despesa faz parte de uma sequência de parcelas —
+    // as mudanças valem pra ela e pra todas as seguintes da mesma compra
+    const totalAntigo = totalParcela(d);
+    const linhas = [];
+    linhas.push('<div class="modal-diff-item">Essa despesa faz parte de um parcelamento (<b>' + escHtml(d.parcela) + '</b>). As mudanças abaixo valem pra esta parcela <span class="novo">e para todas as seguintes</span> desta mesma compra:</div>');
+    if(novaCategoria !== d.categoria) linhas.push(linhaDiff('Categoria', d.categoria, novaCategoria));
+    if(novaDescricao !== (d.descricao||'')) linhas.push(linhaDiff('Descrição', d.descricao||'—', novaDescricao||'—'));
+    if(novoValor !== d.valor) linhas.push(linhaDiff('Valor de cada parcela', fmtBRL(d.valor), fmtBRL(novoValor)));
+    if(novaData !== d.data) linhas.push(linhaDiff('Data desta parcela', fmtDataBR(d.data), fmtDataBR(novaData)));
+    if(parcelaTotal !== totalAntigo){
+      if(parcelaTotal < totalAntigo){
+        linhas.push('<div class="modal-diff-item">Total de parcelas: <b>' + totalAntigo + '</b><span class="seta">→</span><span class="novo">' + parcelaTotal + '</span> — as parcelas ' + (parcelaTotal+1) + ' a ' + totalAntigo + ' serão removidas.</div>');
+      } else {
+        linhas.push('<div class="modal-diff-item">Total de parcelas: <b>' + totalAntigo + '</b><span class="seta">→</span><span class="novo">' + parcelaTotal + '</span> — novas parcelas serão criadas até ' + parcelaTotal + '.</div>');
+      }
+    }
+    if(linhas.length === 1){
+      showToast('Nenhuma alteração para salvar.');
+      fecharEdicaoDespesa();
+      return;
+    }
+    diffLista.innerHTML = linhas.join('');
   } else {
-    novaParcela = undefined;
+    const diffs = [];
+    if(novaData !== d.data) diffs.push({ campo: 'Data', de: fmtDataBR(d.data), para: fmtDataBR(novaData) });
+    if(novaCategoria !== d.categoria) diffs.push({ campo: 'Categoria', de: d.categoria, para: novaCategoria });
+    if(novaDescricao !== (d.descricao||'')) diffs.push({ campo: 'Descrição', de: d.descricao || '—', para: novaDescricao || '—' });
+    if(novoValor !== d.valor) diffs.push({ campo: 'Valor', de: fmtBRL(d.valor), para: fmtBRL(novoValor) });
+    const parcelaAntiga = d.parcela || 'sem parcelamento';
+    const parcelaNova = eParcelado.checked ? (parcelaAtual + '/' + parcelaTotal) : 'sem parcelamento';
+    if(parcelaNova !== parcelaAntiga) diffs.push({ campo: 'Parcela', de: parcelaAntiga, para: parcelaNova });
+    if(diffs.length === 0){
+      showToast('Nenhuma alteração para salvar.');
+      fecharEdicaoDespesa();
+      return;
+    }
+    diffLista.innerHTML = diffs.map(x => linhaDiff(x.campo, x.de, x.para)).join('');
   }
 
-  const diffs = [];
-  if(novaData !== d.data) diffs.push({ campo: 'Data', de: fmtDataBR(d.data), para: fmtDataBR(novaData) });
-  if(novaCategoria !== d.categoria) diffs.push({ campo: 'Categoria', de: d.categoria, para: novaCategoria });
-  if(novaDescricao !== (d.descricao||'')) diffs.push({ campo: 'Descrição', de: d.descricao || '—', para: novaDescricao || '—' });
-  if(novoValor !== d.valor) diffs.push({ campo: 'Valor', de: fmtBRL(d.valor), para: fmtBRL(novoValor) });
-  if((novaParcela||'') !== (d.parcela||'')) diffs.push({ campo: 'Parcela', de: d.parcela || 'sem parcelamento', para: novaParcela || 'sem parcelamento' });
-
-  if(diffs.length === 0){
-    showToast('Nenhuma alteração para salvar.');
-    fecharEdicaoDespesa();
-    return;
-  }
-
-  pendingEdit = { id: editandoId, data: novaData, categoria: novaCategoria, descricao: novaDescricao, valor: novoValor, parcela: novaParcela };
-  document.getElementById('editDiffList').innerHTML = diffs.map(x =>
-    '<div class="modal-diff-item"><b>' + escHtml(x.campo) + ':</b> ' + escHtml(x.de) + '<span class="seta">→</span><span class="novo">' + escHtml(x.para) + '</span></div>'
-  ).join('');
   modalEditar.classList.remove('show');
   modalConfirmarEdicao.classList.add('show');
 });
@@ -752,17 +848,84 @@ document.getElementById('editDiffCancelBtn').addEventListener('click', () => {
   modalConfirmarEdicao.classList.remove('show');
   modalEditar.classList.add('show');
 });
+
+function aplicarEdicaoDespesa(edit){
+  const d = state.despesas.find(x => x.id === edit.id);
+  if(!d) return;
+  const eraGrupo = !!d.parcelaGrupoId;
+
+  if(!eraGrupo){
+    // lançamento avulso: edição simples, não propaga pra lugar nenhum
+    d.data = edit.data; d.categoria = edit.categoria; d.descricao = edit.descricao; d.valor = edit.valor;
+    if(edit.parcelado){
+      d.parcelaGrupoId = uid();
+      d.parcela = edit.parcelaAtual + '/' + edit.parcelaTotal;
+    } else {
+      delete d.parcelaGrupoId; delete d.parcela;
+    }
+    salvarLocal();
+    return;
+  }
+
+  if(!edit.parcelado){
+    // desmarcou "parcelado": só desliga esta parcela específica da sequência,
+    // as outras parcelas da compra continuam como estavam
+    d.data = edit.data; d.categoria = edit.categoria; d.descricao = edit.descricao; d.valor = edit.valor;
+    delete d.parcelaGrupoId; delete d.parcela;
+    salvarLocal();
+    return;
+  }
+
+  // fazia parte de uma sequência e continua parcelada: propaga a edição
+  // desta parcela em diante (as anteriores não são tocadas, exceto o total)
+  const grupoId = d.parcelaGrupoId;
+  const numAntigo = numParcela(d);
+  const seguintesAntigas = state.despesas.filter(x => x.parcelaGrupoId === grupoId && x.id !== d.id && numParcela(x) > numAntigo);
+  const anteriores = state.despesas.filter(x => x.parcelaGrupoId === grupoId && x.id !== d.id && numParcela(x) < numAntigo);
+  const novoTotal = edit.parcelaTotal;
+  const novoAtual = edit.parcelaAtual;
+
+  d.data = edit.data; d.categoria = edit.categoria; d.descricao = edit.descricao; d.valor = edit.valor;
+  d.parcela = novoAtual + '/' + novoTotal;
+
+  // remove as que ficaram além do novo total
+  const idsRemover = new Set(seguintesAntigas.filter(x => numParcela(x) > novoTotal).map(x => x.id));
+  if(idsRemover.size) state.despesas = state.despesas.filter(x => !idsRemover.has(x.id));
+
+  // atualiza e renumera as que continuam existindo
+  const restantes = seguintesAntigas.filter(x => !idsRemover.has(x.id)).sort((a,b) => numParcela(a)-numParcela(b));
+  let n = novoAtual;
+  restantes.forEach(x => {
+    n++;
+    x.data = addMeses(edit.data, n - novoAtual);
+    x.categoria = edit.categoria;
+    x.descricao = edit.descricao;
+    x.valor = edit.valor;
+    x.parcela = n + '/' + novoTotal;
+  });
+
+  // cria parcelas novas se o novo total for maior do que o que já existia
+  for(let falta = n+1; falta <= novoTotal; falta++){
+    state.despesas.push({
+      id: uid(),
+      data: addMeses(edit.data, falta - novoAtual),
+      categoria: edit.categoria,
+      descricao: edit.descricao,
+      valor: edit.valor,
+      parcelaGrupoId: grupoId,
+      parcela: falta + '/' + novoTotal
+    });
+  }
+
+  // atualiza só o total (Y) nas parcelas anteriores, sem mexer em mais nada delas
+  anteriores.forEach(x => { x.parcela = numParcela(x) + '/' + novoTotal; });
+
+  salvarLocal();
+}
+
 document.getElementById('editDiffConfirmBtn').addEventListener('click', () => {
   if(!pendingEdit) return;
-  const d = state.despesas.find(x => x.id === pendingEdit.id);
-  if(d){
-    d.data = pendingEdit.data;
-    d.categoria = pendingEdit.categoria;
-    d.descricao = pendingEdit.descricao;
-    d.valor = pendingEdit.valor;
-    if(pendingEdit.parcela) d.parcela = pendingEdit.parcela; else delete d.parcela;
-    salvarLocal();
-  }
+  aplicarEdicaoDespesa(pendingEdit);
   pendingEdit = null;
   editandoId = null;
   modalConfirmarEdicao.classList.remove('show');
@@ -796,8 +959,7 @@ document.getElementById('txForm').addEventListener('submit', function(e){
     const grupoId = uid();
     for(let i=0; i<numParcelas; i++){
       const dataParcela = addMeses(data, i);
-      const descParcela = (descricao ? descricao + ' ' : '') + '(' + (i+1) + '/' + numParcelas + ')';
-      addDespesa({ data: dataParcela, categoria, descricao: descParcela, valor: Math.abs(valor), recorrenteId: null, parcela: (i+1)+'/'+numParcelas, parcelaGrupoId: grupoId });
+      addDespesa({ data: dataParcela, categoria, descricao, valor: Math.abs(valor), recorrenteId: null, parcela: (i+1)+'/'+numParcelas, parcelaGrupoId: grupoId });
     }
     showToast(numParcelas + ' parcelas lançadas, uma por mês a partir de ' + fmtDataBR(data) + '.');
   } else {
