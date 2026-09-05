@@ -187,6 +187,9 @@ body{
 .checkbox-label{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;padding:3px 0}
 .checkbox-label input[type=checkbox]{width:15px;height:15px;accent-color:var(--sage);cursor:pointer}
 .tag-parcela{display:inline-flex;align-items:center;font-size:10px;font-weight:700;color:var(--sage-dark);margin-left:6px;background:var(--sage-light);padding:2px 8px;border-radius:999px}
+.parcela-preview{grid-column:1/-1;font-size:12px;color:var(--sage-dark);background:var(--sage-light);border-radius:var(--radius-sm);padding:8px 12px;margin-top:-2px;display:none}
+.parcela-preview.show{display:block}
+.parcela-preview b{font-weight:700}
 
 /* ---------- tabela ---------- */
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -319,6 +322,7 @@ td.num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numer
           <label>Nº de parcelas</label>
           <input type="number" id="fParcelas" min="2" step="1" placeholder="Ex.: 12">
         </div>
+        <div class="parcela-preview" id="fParcelaPreview"></div>
         <button type="submit" class="tx-submit"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"></path></svg>Adicionar</button>
       </form>
 
@@ -508,6 +512,20 @@ function mesAnterior(mesStr){
   const [y,m] = mesStr.split('-').map(Number);
   const d = new Date(y, m-2, 1);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+// divide um valor total em N parcelas, mantendo a soma exata (os centavos
+// que sobram do arredondamento vão pras últimas parcelas, igual fatura de
+// cartão de crédito costuma fazer)
+function dividirParcelas(valorTotal, n){
+  const totalCent = Math.round(valorTotal * 100);
+  const base = Math.floor(totalCent / n);
+  const resto = totalCent - base * n;
+  const partes = [];
+  for(let i=0; i<n; i++){
+    const extra = (i >= n - resto) ? 1 : 0;
+    partes.push((base + extra) / 100);
+  }
+  return partes;
 }
 function addMeses(dataIso, n){
   // soma n meses a uma data ISO, ajustando o dia se o mês de destino for
@@ -942,12 +960,33 @@ document.getElementById('editDiffConfirmBtn').addEventListener('click', () => {
 const fParceladoEl = document.getElementById('fParcelado');
 const fParcelasWrap = document.getElementById('fParcelasWrap');
 const fParcelasEl = document.getElementById('fParcelas');
+const fValorEl = document.getElementById('fValor');
+const fParcelaPreviewEl = document.getElementById('fParcelaPreview');
 function atualizarModoParcelado(){
   const on = fParceladoEl.checked;
-  document.getElementById('valorLabelText').textContent = on ? 'Valor da parcela' : 'Valor';
+  document.getElementById('valorLabelText').textContent = on ? 'Valor total da compra' : 'Valor';
   fParcelasWrap.style.display = on ? 'flex' : 'none';
+  atualizarPreviewParcela();
+}
+function atualizarPreviewParcela(){
+  const on = fParceladoEl.checked;
+  const valorTotal = parseValor(fValorEl.value);
+  const n = parseInt(fParcelasEl.value, 10);
+  if(!on || !valorTotal || !n || n < 2){
+    fParcelaPreviewEl.className = 'parcela-preview';
+    fParcelaPreviewEl.textContent = '';
+    return;
+  }
+  const partes = dividirParcelas(valorTotal, n);
+  const iguais = partes.every(p => p === partes[0]);
+  fParcelaPreviewEl.className = 'parcela-preview show';
+  fParcelaPreviewEl.innerHTML = iguais
+    ? `${n}x de <b>${fmtBRL(partes[0])}</b> — total ${fmtBRL(valorTotal)}`
+    : `${n - partes.filter(p=>p!==partes[0]).length}x de <b>${fmtBRL(partes[0])}</b> + ${partes.filter(p=>p!==partes[0]).length}x de <b>${fmtBRL(partes[partes.length-1])}</b> — total ${fmtBRL(valorTotal)}`;
 }
 fParceladoEl.addEventListener('change', atualizarModoParcelado);
+fValorEl.addEventListener('input', atualizarPreviewParcela);
+fParcelasEl.addEventListener('input', atualizarPreviewParcela);
 
 document.getElementById('txForm').addEventListener('submit', function(e){
   e.preventDefault();
@@ -963,11 +1002,12 @@ document.getElementById('txForm').addEventListener('submit', function(e){
 
   if(parcelado){
     const grupoId = uid();
+    const partes = dividirParcelas(Math.abs(valor), numParcelas);
     for(let i=0; i<numParcelas; i++){
       const dataParcela = addMeses(data, i);
-      addDespesa({ data: dataParcela, categoria, descricao, valor: Math.abs(valor), recorrenteId: null, parcela: (i+1)+'/'+numParcelas, parcelaGrupoId: grupoId });
+      addDespesa({ data: dataParcela, categoria, descricao, valor: partes[i], recorrenteId: null, parcela: (i+1)+'/'+numParcelas, parcelaGrupoId: grupoId });
     }
-    showToast(numParcelas + ' parcelas lançadas, uma por mês a partir de ' + fmtDataBR(data) + '.');
+    showToast(numParcelas + ' parcelas de ' + fmtBRL(partes[0]) + ' lançadas (total ' + fmtBRL(Math.abs(valor)) + '), uma por mês a partir de ' + fmtDataBR(data) + '.');
   } else {
     addDespesa({ data, categoria, descricao, valor: Math.abs(valor), recorrenteId: null });
     showToast('Despesa adicionada.');
@@ -981,6 +1021,7 @@ document.getElementById('txForm').addEventListener('submit', function(e){
   fParceladoEl.checked = false;
   fParcelasEl.value = '';
   atualizarModoParcelado();
+  atualizarPreviewParcela();
   render();
 });
 
