@@ -161,6 +161,15 @@ body{
 .pie-legend-item .nome{flex:1;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pie-legend-item .pct{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--ink-soft);font-variant-numeric:tabular-nums;flex-shrink:0}
 .pie-legend-item .val{font-size:11px;color:var(--ink-faint);margin-left:2px;flex-shrink:0;min-width:78px;text-align:right;font-variant-numeric:tabular-nums}
+.pie-legend{max-height:none}
+.pie-pp{margin-top:1.1rem;padding-top:1.1rem;border-top:1px solid var(--border-soft)}
+.pie-pp-title{display:flex;align-items:baseline;gap:8px;font-size:11px;font-weight:700;color:var(--sage-dark);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.pie-pp-title span{color:var(--ink-faint);font-weight:600;letter-spacing:0}
+.pie-pp-row{display:flex;align-items:center;gap:9px;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--border-soft)}
+.pie-pp-row .nome{flex:1;min-width:0;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pie-pp-row .val{font-family:'IBM Plex Mono',monospace;font-weight:700;color:var(--sage-dark);font-variant-numeric:tabular-nums;flex-shrink:0}
+.pie-pp-row.total{border-bottom:none;padding-top:10px}
+.pie-pp-row.total .nome{color:var(--ink-soft);text-transform:uppercase;font-size:11px;letter-spacing:.5px}
 
 /* ---------- recorrentes ---------- */
 .recur-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--gold-light);border:1px solid rgba(181,135,47,.35);border-radius:var(--radius-md);padding:.9rem 1.1rem;margin-bottom:1.2rem;animation:bannerIn .25s var(--ease)}
@@ -358,6 +367,7 @@ td.num{text-align:right;font-family:'IBM Plex Mono',monospace;font-variant-numer
           <div class="pie-chart" id="pieChart"></div>
           <div class="pie-legend" id="pieLegend"></div>
         </div>
+        <div class="pie-pp" id="piePP" style="display:none"></div>
       </div>
     </div>
   </div>
@@ -562,7 +572,22 @@ function corCategoria(cat){
   for(let i=0; i<cat.length; i++) hash = (hash*31 + cat.charCodeAt(i)) >>> 0;
   return PIE_CORES[hash % PIE_CORES.length];
 }
+function renderPorPessoaPizza(entries, total){
+  const el = document.getElementById('piePP');
+  const pessoas = Math.max(1, state.pessoas || 2);
+  if(!entries.length || total <= 0 || pessoas <= 1){ el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = '<div class="pie-pp-title">Por pessoa <span>÷ ' + pessoas + '</span></div>' +
+    entries.map(([cat,val]) =>
+      '<div class="pie-pp-row">' +
+        '<span class="pie-dot" style="background:' + corCategoria(cat) + '"></span>' +
+        '<span class="nome">' + escHtml(cat) + '</span>' +
+        '<span class="val">' + fmtBRL(val / pessoas) + '</span>' +
+      '</div>').join('') +
+    '<div class="pie-pp-row total"><span class="nome">Total por pessoa</span><span class="val">' + fmtBRL(total / pessoas) + '</span></div>';
+}
 function renderPizza(porCat, total){
+  renderPorPessoaPizza(Object.entries(porCat).sort((a,b) => b[1]-a[1]), total);
   const pieChart = document.getElementById('pieChart');
   const pieLegend = document.getElementById('pieLegend');
   const entries = Object.entries(porCat).sort((a,b) => b[1]-a[1]);
